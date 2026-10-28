@@ -23,15 +23,19 @@ def main():
         path = ROOT / rel
         if any(part in {".private", ".venv", "__pycache__"} for part in path.relative_to(ROOT).parts):
             errors.append(f"Private directory tracked: {rel}")
-        if path.suffix.lower() in {".jpg", ".jpeg"}:
-            if rel not in {"docs/images/before-model.jpg", "docs/images/after-model.jpg"}:
+        if path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+            limits = {"docs/images/before-full.jpg": (1080, 2414),
+                      "docs/images/after-full.jpg": (1080, 2414),
+                      "docs/images/exif-layers.png": (2000, 1200)}
+            if rel not in limits:
                 errors.append(f"Unapproved media: {rel}")
                 continue
             tags = json.loads(subprocess.check_output(["exiftool", "-j", "-n", "-ImageWidth", "-ImageHeight",
                 "-GPS:all", "-Artist", "-OwnerName", "-SerialNumber", "-UserComment", "-ImageDescription",
                 "-Make", "-Model", str(path)], stderr=subprocess.DEVNULL))[0]
             allowed = {"SourceFile", "ImageWidth", "ImageHeight"}
-            if set(tags) - allowed or tags.get("ImageWidth", 99999) > 1000 or tags.get("ImageHeight", 99999) > 160:
+            width, height = limits[rel]
+            if set(tags) - allowed or tags.get("ImageWidth", 99999) > width or tags.get("ImageHeight", 99999) > height:
                 errors.append(f"Image metadata or dimensions require review: {rel}")
         elif path.suffix.lower() in {".mp4", ".heic", ".png", ".log", ".xml", ".pem"}:
             errors.append(f"Unapproved artifact type: {rel}")

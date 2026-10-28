@@ -1,0 +1,14 @@
+{
+  "make": "Demo",
+  "model": "ColorOS EXIF Demo",
+  "taken_at": "2020:06:01 12:34:56",
+  "utc_offset": "+08:00",
+  "latitude": 39.9087,
+  "longitude": 116.3975,
+  "iso": 200,
+  "aperture": 2.8,
+  "exposure": "1/125",
+  "ev": -0.7,
+  "focal_length": 35,
+  "focal_length_35mm": 50
+}

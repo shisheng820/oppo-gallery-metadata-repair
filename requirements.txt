@@ -1,1 +1,1 @@
-lamda==10.9
+# No Python runtime packages required. Install the external ExifTool executable.

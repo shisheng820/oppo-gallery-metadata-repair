@@ -1,33 +1,47 @@
 param(
     [Parameter(Mandatory=$true)][string]$Source,
     [Parameter(Mandatory=$true)][string]$Output,
+    [string]$Profile,
     [string]$Make,
     [string]$Model,
-    [switch]$Apply,
-    [switch]$VerifyPhone,
-    [string]$DeviceHost,
-    [int]$Port = 65000,
-    [string]$Certificate,
-    [string]$Serial
+    [string]$TakenAt,
+    [string]$UtcOffset,
+    [string]$Latitude,
+    [string]$Longitude,
+    [string]$Altitude,
+    [string]$Iso,
+    [string]$Aperture,
+    [string]$Exposure,
+    [string]$ExposureCompensation,
+    [string]$FocalLength,
+    [string]$FocalLength35mm,
+    [string]$LensMake,
+    [string]$LensModel,
+    [switch]$Recursive,
+    [switch]$FromFilenameTime,
+    [switch]$OnlyMissing,
+    [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
 $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-if (!(Test-Path -LiteralPath $python)) { throw 'First create .venv and install requirements.txt as described in README.' }
-if ($VerifyPhone -and (!$Apply -or !$DeviceHost -or !$Serial)) {
-    throw '-VerifyPhone requires -Apply, -DeviceHost and -Serial.'
+if (!(Test-Path -LiteralPath $python)) {
+    $python = (Get-Command python -ErrorAction Stop).Source
 }
 $repairArgs = @((Join-Path $PSScriptRoot 'repair.py'), $Source, '--output', $Output)
-if ($Make) { $repairArgs += @('--make', $Make) }
-if ($Model) { $repairArgs += @('--model', $Model) }
+$fields = @{
+    Profile='profile'; Make='make'; Model='model'; TakenAt='taken-at'; UtcOffset='utc-offset';
+    Latitude='latitude'; Longitude='longitude'; Altitude='altitude'; Iso='iso';
+    Aperture='aperture'; Exposure='exposure'; ExposureCompensation='ev'; FocalLength='focal-length';
+    FocalLength35mm='focal-length-35mm'; LensMake='lens-make'; LensModel='lens-model'
+}
+foreach ($key in $fields.Keys) {
+    if ($PSBoundParameters.ContainsKey($key)) {
+        $repairArgs += ('--' + $fields[$key] + '=' + $PSBoundParameters[$key])
+    }
+}
+if ($Recursive) { $repairArgs += '--recursive' }
+if ($FromFilenameTime) { $repairArgs += '--from-filename-time' }
+if ($OnlyMissing) { $repairArgs += '--only-missing' }
 if ($Apply) { $repairArgs += '--apply' }
 & $python @repairArgs
-if ($LASTEXITCODE -ne 0) { throw 'Repair failed; phone verification was not started.' }
-if ($VerifyPhone) {
-    $report = Get-Content -Raw -Encoding UTF8 (Join-Path $Output 'report.json') | ConvertFrom-Json
-    $verifyArgs = @((Join-Path $PSScriptRoot 'verify_gallery.py'), (Join-Path $Output 'repaired.jpg'),
-        '--host', $DeviceHost, '--port', $Port, '--serial', $Serial,
-        '--expected-model', $report.model, '--evidence', (Join-Path $Output 'device'))
-    if ($Certificate) { $verifyArgs += @('--certificate', $Certificate) }
-    & $python @verifyArgs
-    if ($LASTEXITCODE -ne 0) { throw 'Phone verification failed; inspect private reports.' }
-}
+if ($LASTEXITCODE -ne 0) { throw 'Metadata operation failed. Inspect the output and report.json if created.' }

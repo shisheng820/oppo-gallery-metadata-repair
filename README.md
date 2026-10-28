@@ -1,100 +1,138 @@
-# OPPO 相册照片机型修复
+# 让 ColorOS 相册读懂你的照片
 
-把 JPEG 的相机厂商、机型写入**新副本**，再通过 FireRPA 操作 OPPO/一加系统相册，检查详情页实际显示。ADB 仅用于文件传输与同设备校验。
+批量修改指定文件夹内 **JPEG/JPG** 的机型、拍摄时间、GPS 和摄影参数，输出到新目录，保留原片。可以把整批照片设成同一机型，也可以只改一个字段。
 
-**已实测：** 2026-10-28，一加 Ace 3V，Android 16 / API 36，系统相册 `com.coloros.gallery3d` 16.40.22，FireRPA 10.9，ExifTool 13.59。真实 Pixel 4 XL 照片的隔离对照副本从“无相机信息”恢复为“Pixel 4 XL”。[完整验证记录](docs/validation.md)。
+**只需要 Python 3.10+ 和 [ExifTool](https://exiftool.org/)**，不需要手机自动化环境或 Python 运行时依赖。实测环境为 Windows、Python 3.12、ExifTool 13.59、ColorOS 系统相册 16.40.22。
 
-| 修复前 | 修复后 |
+[阅读完整教程：从 MIUI、类原生、Pixel 到一加](docs/article.md)
+
+## 一条命令，把整个文件夹改成指定机型
+
+安装 Python 与 ExifTool，并确保 `python`、`exiftool` 在 PATH 中：
+
+```powershell
+python --version
+exiftool -ver
+
+# 先预览，不写入文件
+python repair.py 'D:\Photos' --output 'D:\Photos-Pixel' --make Google --model 'Pixel 4 XL' --recursive
+
+# 确认后执行；源目录不变，输出目录必须尚不存在
+python repair.py 'D:\Photos' --output 'D:\Photos-Pixel' --make Google --model 'Pixel 4 XL' --recursive --apply
+```
+
+`--recursive` 包含子文件夹；不加则只处理当前层。支持单个 JPEG，也支持目录。输出保留原文件名和相对目录；其他格式列在报告中，**不会转换或修改 PNG、HEIC、视频**。修改 EXIF 不等于转换图像格式。
+
+Windows 也可使用 PowerShell 入口：
+
+```powershell
+.\run.ps1 -Source 'D:\Photos' -Output 'D:\Photos-Pixel' -Make Google -Model 'Pixel 4 XL' -Recursive -Apply
+```
+
+PowerShell 入口优先使用项目已有的 `.venv`，否则使用 PATH 中的 Python。若系统执行策略不允许运行 PS1，可直接用上面的 Python 命令。
+
+## 其他常见修改
+
+```powershell
+# 只修改机型，其他字段保留
+python repair.py 'D:\Photos' --output 'D:\Photos-Custom' --model 'My Custom Camera' --apply
+
+# 整批统一为同一拍摄时间；这是明确的统一设置，不是自动恢复每张照片的真实时间
+python repair.py 'D:\Photos' --output 'D:\Photos-Time' --taken-at '2020:06:01 12:34:56' --utc-offset=+08:00 --apply
+
+# 每张照片分别从完整文件名中取日期；不猜 IMG_1234 或缺少年份的 LMC 文件
+python repair.py 'D:\Photos' --output 'D:\Photos-Dated' --from-filename-time --apply
+
+# 修改 GPS：示例为公开的北京地区坐标，不是使用者当前位置
+python repair.py 'D:\Photos' --output 'D:\Photos-GPS' --latitude 39.9087 --longitude 116.3975 --apply
+
+# 摄影参数：实际焦距 35 mm，35mm 等效焦距 50 mm
+python repair.py 'D:\Photos' --output 'D:\Photos-Exposure' --iso 200 --aperture 2.8 --exposure 1/125 --focal-length 35 --focal-length-35mm 50 --apply
+
+# 仅补缺失机型；不覆盖已有机型
+python repair.py 'D:\Photos' --output 'D:\Photos-Missing' --make Google --model 'Pixel 4 XL' --only-missing --apply
+```
+
+任意字段参数可以组合。默认不根据文件名前缀、年份或镜头文字自动猜测机型。
+
+`--from-filename-time` 接受严格的 `IMG_YYYYMMDD_HHMMSS.jpg` 及 `PXL_YYYYMMDD_HHMMSSsss[.PORTRAIT].jpg` 等完整格式；不符合规则或非法日期的文件标记为 skipped，不写入输出。文件名中的时间**按原样使用**，不会自动把 UTC 转成本地时间，请先确认其含义。它不能与 `--taken-at` 同用。
+
+## 用 JSON 预设完成一键修改
+
+修改 [profiles/demo.json](profiles/demo.json)，然后运行：
+
+```powershell
+python repair.py 'D:\Photos' --output 'D:\Photos-Demo' --profile profiles/demo.json --recursive --apply
+
+# PowerShell 等价命令
+.\run.ps1 -Source 'D:\Photos' -Output 'D:\Photos-Demo' -Profile profiles/demo.json -Recursive -Apply
+```
+
+预设只应包含准备修改的字段，省略的字段保持原值。命令行值覆盖预设中的同名值。仓库另附只改机型的 Pixel 4 XL、Redmi Note 8 Pro 预设；它们是用户主动选择的标签值，不是设备识别结果。
+
+| JSON 字段 | Python 参数 | PowerShell 参数 | 说明 |
+| --- | --- | --- | --- |
+| make / model | --make / --model | -Make / -Model | 厂商与自定义机型，建议用 ASCII 名称以减少旧相册兼容问题 |
+| taken_at | --taken-at | -TakenAt | 年月日时分秒，可追加 .123 毫秒；同时写 Original、Create、Modify 三组时间 |
+| utc_offset | --utc-offset | -UtcOffset | 如 +08:00；负偏移用 --utc-offset=-03:00 |
+| latitude / longitude | --latitude / --longitude | -Latitude / -Longitude | 十进制度，必须成对；负值为南纬 / 西经；写 WGS-84 基准 |
+| altitude | --altitude | -Altitude | 米；负值表示海平面以下 |
+| iso / aperture | --iso / --aperture | -Iso / -Aperture | ISO 整数 / 光圈数值，如 200 / 2.8 |
+| exposure | --exposure | -Exposure | 秒，支持 1/125 或 0.008 |
+| ev | --ev | -ExposureCompensation | 曝光补偿，如 -0.7；本次相册未显示它 |
+| focal_length | --focal-length | -FocalLength | 实际焦距，mm |
+| focal_length_35mm | --focal-length-35mm | -FocalLength35mm | 35mm 等效焦距，整数 mm |
+| lens_make / lens_model | --lens-make / --lens-model | -LensMake / -LensModel | 镜头标签，与相机厂商/型号分开 |
+
+设定拍摄时间时会同步亚秒字段；未提供小数秒会清除旧的亚秒值，防止留下不属于新时间的毫秒。时区字段只在明确提供 `utc_offset` 时修改；未提供则保留原时区，务必检查是否仍适用。光圈和快门同时维护相应 APEX 字段，避免留下互相冲突的两种表示。
+
+## ColorOS 的真实显示效果
+
+演示素材为 NASA 公开的 [Blue Marble](https://svs.gsfc.nasa.gov/30613/)。以下机型、时间、地面位置及参数均为教学设定，**不代表这张照片的真实拍摄信息**。
+
+| 修改前 | 修改后 |
 | --- | --- |
-| ![相册显示无相机信息](docs/images/before-model.jpg) | ![相册显示Pixel 4 XL](docs/images/after-model.jpg) |
+| ![修改前的完整相册详情](docs/images/before-full.jpg) | ![修改后的完整相册详情](docs/images/after-full.jpg) |
 
-截图仅保留真实详情页的机型一行，没有原片画面、地址或通知。原片、完整 XML、调试日志和详细报告均不进入 Git。
+修改后实机显示：
 
-## 安装
+- 机型：ColorOS EXIF Demo
+- 时间：2020 年 6 月 1 日 12:34（字段含秒，界面此处显示到分钟）
+- 地点：北京地区地址，由相册对示例 GPS 反向解析
+- 参数：ISO 200、f/2.8、1/125 s、50 mm
 
-需要 Windows PowerShell、Python 3.12（本次测试版本）、[ExifTool](https://exiftool.org/)、[Android Platform Tools](https://developer.android.com/tools/releases/platform-tools)。`exiftool` 和 `adb` 应在 PATH 中。手机启动 [FireRPA](https://github.com/firerpa/lamda) 服务并完成 ADB 调试授权。
+实际焦距写入 35 mm、等效焦距写入 50 mm 时，这个版本显示 50 mm。`ExposureCompensation=-0.7` 已经写入并读回，但界面仍显示“−”。字段存在与界面显示是两件事，其他版本需实测。
+
+两张完整截图经人工检查，无私人照片、通知、账号或真实个人位置，因而没有打码；图中地址是预设的公共演示坐标解析结果。[兼容性与隐私说明](docs/validation.md)。
+
+## 怎么让手机相册刷新
+
+先将少量输出 JPEG **复制到手机的新图集**，保留手机旧文件。可用 USB 文件传输或现有文件同步工具；不要把输出里的 `_original`、JSON 报告也导入相册。
+
+等待 Android 扫描后，重新打开相册并查看详情。同文件名原地覆盖可能继续显示旧缓存；换新目录/新名字做对照，更容易判断文件与索引是否已经更新。不要先清空相册数据库，也不要在没有完整备份时镜像整个 DCIM。
+
+本工具只编辑电脑上的副本，不控制手机，也不清除相册数据。
+
+## 报告、退出码与回退
+
+- 默认仅预览；`--apply` 才创建新输出目录。拒绝已有输出目录、源目录自身以及与源目录嵌套的路径。
+- ExifTool 默认在输出目录内另留 `<原名>.jpg_original`。回退时使用原输入即可；原图从未被写入。
+- 每张照片检查原文件 SHA-256 未变、目标字段读回匹配、首个 JPEG SOS 至文件末尾的数据哈希不变；最后一项验证扫描数据未重新编码，不保证所有私有元数据逐字节不变。
+- `report.json` 记录逐文件字段变化、读回结果、警告、跳过原因和失败。存在失败则退出码 1；部分文件仍可能已经输出，先检查报告。skipped / unsupported 也要核对，退出码 0 不等于所有目录文件均被修改。
+- 报告可能含原路径、日期和 GPS，应保存在仓库外或被忽略的 `.private/`。未知预设字段、非法时间、越界 GPS 和无效曝光值会在写入前拒绝。
+- 不调用 `-all=`，不批量擦除既有 EXIF，不删除手机数据。修改元数据不会让照片获得另一台设备的成像效果。
+
+## 测试
+
+运行时只需 Python 标准库；Pillow 仅用于测试生成无隐私样本：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-exiftool -ver
-adb devices -l
-```
-
-本工具不会安装手机服务、修改权限、清除相册缓存或数据库。FireRPA 服务需要已有执行 shell、访问 UI 的能力。
-
-## 先预览，再一键修复和验证
-
-输入必须是单张 JPEG；输出必须是**尚不存在的新目录**。请将媒体和输出目录放在 Git 之外，或放到已忽略的 `.private/` 中。
-
-```powershell
-# 只读预览；不会写照片、创建输出目录或连接手机
-.\run.ps1 -Source 'D:\Photos\input.jpg' -Output '.private\sample-01'
-```
-
-默认从 `LensMake` 和 `LensModel` 读取来源，例如 `Google` 与 `Pixel 4 XL back camera 4.38mm f/1.73`。只移除明确的 `back/front camera ...` 后缀；不会根据 PXL/IMG 前缀或年份猜机型。没有可信镜头信息时，显式传 `-Make 'Google' -Model 'Pixel 4 XL'`。这两个值必须由使用者确认。
-
-```powershell
-# 仅生成修复副本和本地报告，不连接手机
-.\run.ps1 -Source 'D:\Photos\input.jpg' -Output '.private\sample-01' -Apply
-
-# 一条命令：修复 → 传输 → 扫描 → 重开系统相册 → 点击详情 → 校验型号、文件名和路径
-# 每次选择新的输出目录；把地址和序列号替换为自己的实际值
-$deviceAddress = 'your-device-host'
-$adbSerial = 'your-adb-serial'
-.\run.ps1 -Source 'D:\Photos\input.jpg' -Output '.private\sample-02' `
-  -Apply -VerifyPhone -DeviceHost $deviceAddress -Port 65000 -Serial $adbSerial
-```
-
-TLS 服务还需 `-Certificate 'D:\Keys\lamda.pem'`，端口使用实际配置值。脚本不会猜测设备地址。可以在不重新修复的情况下单独重试手机验证：
-
-```powershell
-.\.venv\Scripts\python.exe verify_gallery.py '.private\sample-02\repaired.jpg' `
-  --host $deviceAddress --port 65000 --serial $adbSerial `
-  --expected-model 'Pixel 4 XL' --evidence '.private\sample-02\device-retry'
-```
-
-`verify_gallery.py` 启用 lamda 调试日志。需要保存时，将输出重定向到 `.private/` 内；日志可能包含设备路径和 UI 文本，不要公开。
-
-## 安全边界与报告
-
-- 只修改 `IFD0:Make`、`IFD0:Model`，不改拍摄时间、时区、GPS、镜头参数；此版本不支持批量、HEIC 或 MP4。历史教程里的视频私有字段不在本次验收范围。
-- `repair.py` 默认预览。`--apply` 只操作新目录的 `repaired.jpg`，ExifTool 默认另留 `repaired.jpg_original` 备份，不使用 `-all=`。
-- 写入后检查原文件 SHA-256 未变、目标标签读回一致，以及首个 JPEG SOS 起至文件末尾的数据哈希未变。后者验证图像扫描数据未重新编码，**不是对所有私有元数据逐字节保留的保证**。
-- `before.json` / `after.json` 记录详细标签；`report.json` 记录字段变化和校验。它们可能包含位置、路径等隐私，均应留在本地。ExifTool 警告也保存，不悄悄忽略。
-- 手机每次新建独立的 `Pictures/MetadataRepair-<随机值>/repaired.jpg`，不覆盖 DCIM。传输后校验 SHA-256；校验 ADB 与 FireRPA 指向同一手机；扫描后查询 MediaStore 实际行，再用 `content://` 打开。
-- 相册会被停止并重开，不会清除数据。详情按钮使用已实测的资源 ID，等待空闲，首次点击未生效时只重试一次。版本变化、登录或权限弹窗会报错退出，不会继续猜坐标。
-- 退出码 0 才表示本阶段通过。完整成功需 `report.json` 的三个校验为 true，且 `device/device-result.json` 的 `verified` 为 true；还应使用 FireRPA CLI 独立读取详情页。
-- 所有新增测试副本留在手机上供复核，不自动删除。需要撤销时，只手动删除报告中列出的独立测试图集及本地输出目录；原文件从未改动。
-
-## FireRPA CLI 独立检查
-
-操作检查按 [firerpa 技能](https://github.com/firerpa/lamda) 配套的 `scripts/firerpa.py` 执行（CLI 不在本仓库内，也不复制第三方源码）。将下面路径设置为自己的技能 CLI 位置：
-
-```powershell
-$cli = 'D:\Skills\firerpa\scripts\firerpa.py'
-$py = '.\.venv\Scripts\python.exe'
-& $py $cli server-info --host $deviceAddress --port 65000
-& $py $cli dump --host $deviceAddress --port 65000 -o '.private\verify.xml'
-& $py $cli app-current --host $deviceAddress --port 65000
-& $py $cli get-text --host $deviceAddress --port 65000 `
-  --resource-id 'com.coloros.gallery3d:id/tv_model'
-```
-
-本次技能 CLI 有两个实际兼容性问题：连接参数必须放在子命令**后面**；`app-check` 只遍历非系统应用，会误报系统相册未安装。可用 CLI `shell` 的 `pm path com.coloros.gallery3d`、`dumpsys package com.coloros.gallery3d` 加当前 UI 确认实际安装情况。`app-stop` 应显式传 `--user 0`，避免此 CLI 将 None 传给 protobuf。交付脚本用已验证的 FireRPA shell 完成停止与启动。
-
-## 测试与公开前审计
-
-```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-git add .gitignore README.md LICENSE repair.py verify_gallery.py run.ps1 requirements*.txt tests docs scripts
+
+# 公开前先暂存预期文件，再检查公开文件清单
 .\.venv\Scripts\python.exe scripts/audit_public.py
-git diff --cached --stat
 ```
 
-测试使用动态生成的纯色图片，覆盖预览不写入、原片不变、无关 Artist 标签保留、像素一致、重复输出拒绝、没有来源时不猜机型等行为。仓库不包含个人照片或原始聊天导出。
-
-`.gitignore` 不能清理已经提交的隐私历史；本仓库从空目录建立，首个提交前检查 Git 文件清单。如果自行扩展，请重新检查所有提交，而不仅仅是当前工作区。
-
-许可证：[MIT](LICENSE)。
+代码采用 [MIT](LICENSE)。NASA 图片来源及使用条件见 [素材说明](docs/media-sources.md)，相册截图仅作为界面教学；AI 示意图标注为非实机截图。
