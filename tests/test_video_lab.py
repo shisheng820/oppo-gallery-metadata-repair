@@ -34,6 +34,24 @@ class VideoLabIntegration(unittest.TestCase):
         self.assertTrue(json.loads(result.stdout)['preview'])
         self.assertFalse(output.exists())
 
+    def test_oplus_lens_allowlist_round_trips_as_strings(self):
+        config = str(ROOT / 'profiles/oplus-video.config')
+        expected = {'OplusLensModel': 'demo_lens', 'OplusLensFocalLength': '5.0mm',
+                    'OplusLensMaxApertureValue': 'f/2.8'}
+        tagged = self.base / 'tagged.mp4'
+        restored = self.base / 'restored.mp4'
+        subprocess.run(['exiftool', '-config', config, '-o', str(tagged),
+            *[f'-Keys:{key}={value}' for key, value in expected.items()], str(self.source)],
+            check=True, capture_output=True)
+        subprocess.run(['exiftool', '-config', config, '-o', str(restored),
+            '-TagsFromFile', str(tagged), *['-Keys:' + key for key in expected], str(self.source)],
+            check=True, capture_output=True)
+        tags = json.loads(subprocess.check_output(['exiftool', '-j', '-G1', '-s', '-n',
+            str(restored)], stderr=subprocess.DEVNULL))[0]
+        for key, value in expected.items():
+            self.assertEqual(tags['Keys:' + key], value)
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), self.original)
+
     def test_copies_preserve_packets_and_read_back_custom_fields(self):
         output = self.base / 'copies'
         result = self.run_lab(output, '--apply')

@@ -708,6 +708,92 @@ trial-01/                         # 实验输出目录
 
 这一轮已经验证 ACE 3V 的原生视频与合成视频；一加 15 的视频结果尚待复测。即使文件都以 PXL 开头，也仍然不能凭年份猜测它来自哪台 Pixel。
 
+## 视频太大时，先保住原片，再讨论压缩
+
+我后来遇到了另一个实际问题：信息都对的视频，占用却很大。重新编码能减小体积，但它会同时考验画质和元数据。**备份标签不能备份被压掉的画面细节**，所以完整原片仍然要保留。
+
+这次用一段约 5 分 20 秒的私人原生视频测试，只公开统计，不公开画面、声音、拍摄日期和地址。环境是 Windows、RTX 4060 Laptop、FFmpeg 9.0.2、ExifTool 13.59，以及 ACE 3V 相册 16.40.22。
+
+| 检查项 | 实际结果 |
+| --- | --- |
+| 文件大小 | 2,808,257,578 → 1,286,702,157 字节，减少 54.18%（约 2.62 → 1.20 GiB） |
+| 画面 | 保留 3840×2160 编码尺寸、旋转矩阵和约 60 FPS，不缩放；输入是 8 bit BT.709 SDR |
+| 音轨 | AAC 直接复制，逐包哈希与时间戳相同 |
+| 拍摄信息 | 默认转码丢失机型、镜头和定位，并改变日期；按明确字段清单回填后逐项读回一致 |
+| 手机相册 | 压缩副本显示原机型、原日期、原地点、HEVC、60 FPS 和 05:20 |
+
+画质不能只用“看起来差不多”概括。我在前、中、后三处各抽取 6 秒，以帧序号对齐，缩到 1080p 后每五帧采样计算 VMAF，三段均值约为 96.06～96.19；另检查了同一帧的局部细节。这只是这段室内场景的抽样，不能保证运动、暗光或整个片段都达到相同水平。直接按时间对齐的早期比较发生了错位，已弃用。
+
+还有一处不能略过：原文件声明 19,167 帧，实际完整解码只有 19,166 帧；输出实际解码也是 19,166 帧。输出少了源末尾一个包的 PTS，视频轨道短约 16.8 毫秒，整文件时长与音轨时序不变。因此这里能说实际解码帧数一致，不能说所有视频时间戳原样保留，更不能称为无损压缩。
+
+### 在 PowerShell 里分三步处理一个副本
+
+下面从仓库根目录运行，路径换成自己的文件。三个输出文件必须尚不存在；示例仅用于本次验证过的 NVIDIA HEVC、8 bit SDR 路线，不能直接套到 HDR、杜比视界或其他显卡。先保留完整原片，再保存可读的字段与结构报告：
+
+```powershell
+$sourceVideo = 'D:\VideoLab\source.mp4'
+$rawVideo = 'D:\VideoLab\compressed-raw.mp4'
+$restoredVideo = 'D:\VideoLab\compressed-restored.mp4'
+exiftool -config profiles/oplus-video.config -j -G1 -a -s -n $sourceVideo |
+  Set-Content -Encoding utf8 'D:\VideoLab\source-tags.json'
+ffprobe -v error -show_format -show_streams -of json $sourceVideo |
+  Set-Content -Encoding utf8 'D:\VideoLab\source-probe.json'
+Get-FileHash -Algorithm SHA256 $sourceVideo
+```
+
+JSON 用来查证字段，原片才是本例回填的来源。不要把旧文件的整个 `moov` 块粘贴到压缩文件：轨道索引与偏移属于原来的媒体数据。
+
+第二步重新编码画面，直接复制声音。`-noautorotate` 避免自动转正像素；仍需核对输出旋转矩阵。`-cq 16` 是本次选定值，数值不是跨编码器通用的画质等级，也不保证固定压缩比例：
+
+```powershell
+ffmpeg -hide_banner -nostdin -n -noautorotate -i $sourceVideo `
+  -map 0:v:0 -map '0:a:0?' -c:v hevc_nvenc -preset p6 -tune hq `
+  -rc vbr -cq 16 -b:v 0 -pix_fmt yuv420p -enc_time_base:v demux `
+  -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv `
+  -c:a copy -fps_mode passthrough -movflags +faststart $rawVideo
+```
+
+第三步先检查压缩副本，再从原片回填明确的描述字段。不能因为 FFmpeg 控制台列出输入标签，就以为输出保住了它们：
+
+```powershell
+exiftool -config profiles/oplus-video.config -a -G1 -s -time:all -GPSCoordinates -OplusProductModel -OplusLensModel $rawVideo
+
+exiftool -config profiles/oplus-video.config -o $restoredVideo -TagsFromFile $sourceVideo `
+  -Keys:Make -Keys:Model -Keys:AndroidMake -Keys:AndroidModel `
+  -Keys:AndroidVersion -Keys:AndroidCaptureFPS -Keys:OplusProductModel `
+  -Keys:OplusLensModel -Keys:OplusLensFocalLength -Keys:OplusLensMaxApertureValue `
+  -Keys:CreationDate -UserData:GPSCoordinates -Keys:GPSCoordinates `
+  -QuickTime:CreateDate -QuickTime:ModifyDate `
+  -QuickTime:TrackCreateDate -QuickTime:TrackModifyDate `
+  -QuickTime:MediaCreateDate -QuickTime:MediaModifyDate $rawVideo
+
+exiftool -config profiles/oplus-video.config -a -G1 -s -n -time:all -GPSCoordinates -OplusProductModel -OplusLensModel $restoredVideo
+ffprobe -v error -show_format -show_streams -of json $restoredVideo
+```
+
+`-config` 必须是实际命令行的第一个选项，不能藏在 `-@` 参数文件里。原片不存在的标签不会凭空恢复；这份清单也不承诺保留所有未知厂商信息。尺寸、码率、编码参数和轨道偏移必须反映新文件，不能为了“保留元数据”盲目全拷。
+
+最后把新文件复制到手机，核对文件名、详情，并实际播放检查画面与声音。批量处理之前，先用自己的小样本完成这套验收；本文尚未把有损转码接入整库批处理。
+
+## 实况的边界，不能只在一台手机里找答案
+
+继续查资料后，我更愿意把实况分成四层来理解：静态画面、实际视频、描述二者关系的元数据、相册自己的识别规则。改一个标记，不能创造缺失的动态画面；同样的文件，也未必被不同相册以相同方式接纳。
+
+| 资料范围 | 能确认什么 | 不能据此推断什么 |
+| --- | --- | --- |
+| [Android Motion Photo 官方规范](https://developer.android.com/media/platform/motion-photo-format) | 定义 Camera/Container 命名空间、媒体目录、视频长度和对应时间；HEIC/AVIF 有 `mpvd` 封装规定 | 所有厂商相册都只按这一份规范识别 |
+| [小米官方 SDK 文档](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2003) | JPEG 与 MP4 的封装/拆解接口，强调展示时间戳；识别接口还区分文件与媒体库 | MIUI、HyperOS 的所有版本都具有同样能力 |
+| [Apple pairedVideo 文档](https://developer.apple.com/documentation/photos/phassetresourcetype/pairedvideo) | Live Photo 资源有配对视频组件 | 把 MP4 追加到 JPEG 就成了 Apple 原生配对资源 |
+| [ExifTool Samsung Trailer](https://exiftool.org/TagNames/Samsung.html#Trailer) | 部分三星样本有 SEFT 或 `sefd` 尾部数据与嵌入视频 | 三星所有代际都与 OPPO 的尾部格式相同 |
+| [华为 HarmonyOS 动态照片压缩说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-faqs/faqs-media-library-23) | 分别取得图像和视频资源、压缩、重新装载动态照片的 API 路线 | 这是全部 EMUI/Android 文件的统一字节格式 |
+
+社区实现适合找线索，也需要交叉核对。[OPPO 封装项目](https://github.com/Young-Spark/oppo-live-photo-maker) 提供了作者可用的配方，但其中对 MPF 的要求不能当成普遍规则：我们的工作样本已经能在没有 MPF 的情况下播放。[vivo 的社区实现](https://github.com/LengxiQwQ/live-photo-box/blob/master/LivePhotoBox.Core/Services/Protocols/VivoLivePhotoProtocol.cs) 则出现了 VCamera 命名空间和额外视频信息，仍是作者样本下的实验代码，并非 vivo 官方最低要求。
+
+[中文作者的动态照片解析](https://wszqkzqk.github.io/2024/08/01/解析Android的动态照片/) 和 [Ente 工程师的分析](https://ente.com/blog/tech/android-motion-photos-flutter/) 很适合理解兼容性问题，但旧文中“没有官方规范”等说法要结合今天已公开的 Android 文档重新判断。只搜索 `ftyp` 字节也不足以确定视频边界，需要检查长度、偏移及可解码性。
+
+这轮资料没有取得 OPPO、vivo 完整公开的官方文件规范，也没有新增其他品牌实机测试。因此目前扩展的是格式知识和待验证线索，已验证的兼容范围仍按前文设备结果算。[资料矩阵与源码解释](https://github.com/shisheng820/oppo-gallery-metadata-repair/blob/main/docs/oplus-container.md) 保留了更详细的来源和适用边界。
+
+
 ## 如果让 AI 帮忙，先把输入和验收条件说完整
 
 我也会让 AI 协助整理命令，但不会只说一句“帮我修复元数据”。对自己和 AI 来说，先写清下面这些信息，往往比一开始堆更多字段更有效：

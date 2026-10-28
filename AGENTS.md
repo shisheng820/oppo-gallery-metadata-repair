@@ -46,3 +46,7 @@ History uses concise imperative subjects, such as “Fix ColorOS motion-photo XM
 ## Data Safety & Publication
 
 Preserve originals and keep compound-file guards intact. Never publish personal GPS, filenames, embedded previews, videos, audio, credentials, or device logs. The audit reads Git-tracked files: stage intended assets before running it and manually review screenshots and diffs. Distinguish synthetic metadata, observed behavior, and unverified hypotheses.
+
+## Local Operator Handoff
+
+For authorized work on the owner's device or publishing account, read `.private/AGENTS.md` if present. It holds local connection details, reusable automation paths, privacy-review evidence, and known device behavior. Keep that file and its evidence ignored; never copy its contents into this public guide. A tracked `AGENTS.md` must contain only contributor-safe instructions. Removing a file from tracking does not remove earlier committed versions.

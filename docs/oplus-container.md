@@ -171,3 +171,41 @@ python oplus_metadata.py build --image 'D:\Lab\image.jpg' --video 'D:\Lab\video.
 原生长焦实况在 ACE 3V 有入口；其尾部有 live.subVideo、live.subVideoSize，但没有 master.mode.preset.info 或 src.image。它说明不能把大师样本的全部块都称为实况的必要字段。我们没有把这份私人图片、增益图、声音或视频用于新场景。
 
 LensModel、FocalLength、FocalLengthIn35mmFormat 与 DigitalZoomRatio 语义不同。镜头文字、物理实际焦距、等效视角和数码裁切应分开解释；相册的显示优先级仍需按版本实测。
+
+## 9. 外部规范与其他厂商：2026-10-28 资料核对
+
+以下是外部证据扩展，不是本仓库已完成所有品牌实机测试。官方规范、SDK 文档、工具作者的实现和本地相册观察必须分别标注；没有找到文档不等于文档不存在。
+
+| 对象 | 可核对的事实 | 来源与边界 |
+| --- | --- | --- |
+| Android / Google | Motion Photo 1.0 用 Camera 和 Container XMP 描述静态图、视频及对应帧；新规范与旧 MicroVideo 不同；HEIC/AVIF 还有 mpvd 布局 | [Android 官方规范](https://developer.android.com/media/platform/motion-photo-format)，是格式要求，不是每家相册全部私有条件 |
+| 小米 | 官方 SDK 提供识别、拆分、合成与视频对应帧时间戳参数；文档区分设备/相册支持以及媒体库查询和文件 IO 识别 | [小米 SDK 接入指南](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2003)，不能只凭品牌推断第三方文件兼容性 |
+| Apple | Photos 将 Live Photo 的原始图像资源和 pairedVideo 资源分开建模 | [Apple pairedVideo 文档](https://developer.apple.com/documentation/photos/phassetresourcetype/pairedvideo)，不能把 Android 的 JPEG 尾部方案直接当成 Apple 资源规范 |
+| 三星 | ExifTool 解析 SEFT 尾部及部分 HEIC 中的 sefd；社区实现处理 MotionPhoto_Data、目录和偏移 | [ExifTool Samsung Trailer](https://exiftool.org/TagNames/Samsung.html#Trailer)、[MotionPhoto2 作者说明](https://github.com/PetrVys/MotionPhoto2)，存在版本与 JPEG/HEIC 差异 |
+| OPPO / 一加 | 社区工具写 OpCamera 扩展、UserComment 和 MPF；本仓库则已有无 MPF、无增益图的成功播放样本 | [OPPO Live Photo Maker](https://github.com/Young-Spark/oppo-live-photo-maker)、本页实测；其“缺一不可”是实现者的适配经验，不应扩展成通用必要条件 |
+| vivo | 社区实现区分早期双资源与较新单文件；代码包含 VCamera 扩展、UserComment 以及 vivoMediaExtInfo 检查 | [Live Photo Box 协议代码](https://github.com/LengxiQwQ/live-photo-box/blob/master/LivePhotoBox.Core/Services/Protocols/VivoLivePhotoProtocol.cs)、[现代数据检查](https://github.com/LengxiQwQ/live-photo-box/blob/master/LivePhotoBox.Native/src/media/vivo_modern_inventory.h)，项目仍标明部分目标在测试，非本仓库实测结论 |
+| 华为 HarmonyOS | 官方说明将动态照片的图像与视频分别导出、压缩，再加载和保存 MovingPhoto 资源 | [华为动态照片压缩 FAQ](https://developer.huawei.com/consumer/cn/doc/harmonyos-faqs/faqs-media-library-23)，这是资源 API 工作流，不代表所有历代 EMUI/Android 文件字节布局 |
+
+### 能复用的是分层方法，不是“一份万能厂商模板”
+
+```text
+标准描述层：EXIF / XMP / ISO-BMFF 的字段和关联
+  ↓
+媒体层：主图、增益图、视频、音轨及准确的关键帧对应关系
+  ↓
+厂商扩展层：私有命名空间、UserComment、尾部目录或关联信息
+  ↓
+应用层：媒体库索引、相册版本、播放/编辑能力与第三方文件策略
+```
+
+Android 规范明确要求确认视频实际存在，不能仅凭 MotionPhoto=1 识别；它也允许不同编码和位深。与之相比，小米 SDK 进一步强调正确的对应帧时间戳和相册支持条件。这两类证据解释的是不同层，不应混为“所有设备只要补一个标签”。
+
+跨厂商元数据也应区分“同一含义”和“同一存储位置”。例如普通照片常见标准 Make/Model，视频可能有 Android mdta 键、OPPO 私有键或旧三星 smta/SamsungModel；[ExifTool QuickTime 表](https://exiftool.org/TagNames/QuickTime.html)和 [Samsung smta 表](https://exiftool.org/TagNames/Samsung.html#smta)提供解析线索。不能据此声称某家所有机型永远只写某一处，更不能把只读标签当成已支持写入。
+
+### 博文与社区讨论如何使用
+
+- [星外之神：解析 Android 的动态照片](https://wszqkzqk.github.io/2024/08/01/解析Android的动态照片/)由工具作者解释旧/新 XMP、提取与厂商差异，可与其代码互相核对。文章有后续更新，URL 年份不代表所有内容都写于当年。
+- [Ente 工程实践](https://ente.com/blog/tech/android-motion-photos-flutter/)展示跨设备识别困难和 XMP/文件头扫描策略；其中“没有官方文档”的表述不能作为今天的结论，因为现在已有上列官方规范。扫描 ftyp 也只能作为候选定位，必须继续校验容器边界，尤其要防止误取内嵌源图的旧视频。
+- [PhotoPrism #2788](https://github.com/photoprism/photoprism/issues/2788)记录格式、时长和索引分类交互。这是有版本上下文的历史问题，不能据此声称当前 PhotoPrism 仍不支持某种格式。
+
+本轮未获得可核验的 OPPO/vivo 官方完整文件级规范，也未对上述其他品牌做新实机验收。后续应按品牌、系统/相册版本、来源软件与文件类型收集合法的非私人样本；每个样本记录识别、播放、编辑、导入导出与 HDR 是否分别通过，避免用一个“支持”掩盖这些差异。
