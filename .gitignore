@@ -1,0 +1,14 @@
+.venv/
+.private/
+__pycache__/
+*.pyc
+.env
+*.pem
+output/
+*.jpg
+*.jpeg
+*.heic
+*.mp4
+*.log
+*.xml
+!docs/images/*.jpg
