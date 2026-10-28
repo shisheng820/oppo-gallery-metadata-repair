@@ -2,7 +2,7 @@
 
 批量修改指定文件夹内 **JPEG/JPG** 的机型、拍摄时间、GPS 和摄影参数，输出到新目录，保留原片。可以把整批照片设成同一机型，也可以只改一个字段。
 
-**只需要 Python 3.10+ 和 [ExifTool](https://exiftool.org/)**，不需要手机自动化环境或 Python 运行时依赖。实测环境为 Windows、Python 3.12、ExifTool 13.59、ColorOS 系统相册 16.40.22。
+**照片批处理只需要 Python 3.10+ 和 [ExifTool](https://exiftool.org/)**，不需要手机自动化环境或 Python 运行时依赖。实测环境为 Windows、Python 3.12、ExifTool 13.59、ColorOS 系统相册 16.40.22。独立的视频实验另需 FFmpeg / ffprobe，见下文。
 
 [阅读完整教程：从 MIUI、类原生、Pixel 到一加](docs/article.md)
 
@@ -152,3 +152,15 @@ python oplus_metadata.py inspect 'D:\Photos\sample.jpg'
 已确认，相册调时样本同时改写标准 EXIF，并新增 `capture.info.backup` 保存原时间和原文件名；它不是只用一个高优先级新日期覆盖旧日期。大师标记、预设、实况视频和 HDR 增益图也属于不同层面。见 [源码与格式解释](docs/oplus-container.md)。
 
 实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。第一版未识别实况；修正 XMP 声明层级后，v2 在 ACE 3V 已显示实况入口并验证长按播放，使用 H.264、无音轨视频。一加 15 已确认第一版的大师标识、镜头、曝光补偿及日期备份入口，实际复原后的标准 EXIF 时间也已读回验证；v2 的一加 15 实况兼容性待复测。详见[对照证据](docs/validation.md)。
+
+
+## 视频：独立的字段实验
+
+`repair.py` 继续只处理 JPEG。新增实验入口 `scripts/video_lab.py`，需要 ExifTool 和 FFmpeg / ffprobe；默认预览，`--apply` 后在新目录生成五份人工设值的 MP4 对照副本，验证原片哈希及压缩音视频包和时间戳不变。
+
+```powershell
+python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01'
+python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01' --apply
+```
+
+已在 ACE 3V 相册 16.40.22 确认 Keys:Model、OplusProductModel、UTC 容器时间与 UserData GPS 的显示；AndroidModel 单独写入未驱动机型显示。它是字段实验，不是视频批量修复功能；不推断真实设备、日期或地点。[完整实验与命令](docs/video-metadata.md)。

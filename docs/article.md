@@ -404,11 +404,59 @@ HDR 增益图本身也是图像，不能从旧私人照片里整张搬到新图�
 
 ## 旧媒体库里的视频，需要另一个抽屉
 
-整理照片时，我也碰到了 MP4 的 Model、AndroidModel 和 OplusProductModel，以及看似相差八小时的 QuickTime 时间。
+照片跑通以后，我又拿一段原生 HEVC 视频做了独立副本。它让我确认：视频同样能自定义机型、时间和定位，但应该改的字段，已经换了一套。
 
-这些经验提醒我，不要把 JPEG 的规则直接复制到视频上。视频可能同时有多组设备信息，内部时间还可能按 UTC 处理；同为 PXL 开头，也不能凭年份断定是 Pixel 4 XL 还是 Pixel 6 Pro。
+相册中原先的机型来自 Keys:OplusProductModel。新增 Keys:Model 后，显示名称随之改变；只新增 AndroidModel 却没有改变显示。把三个字段写成不同名字，最终显示 Keys:Model；去掉私有机型、只留 AndroidModel，则显示“无相机信息”。这些是 ACE 3V 相册 16.40.22 的实测结果，不能直接推广到所有设备。
 
-本文的图片脚本因此只处理 JPEG。视频要先检查容器字段、真实设备线索和时区，再单独验证；不能为了让一个详情页好看，就把整库视频都套成同一机型。[ExifTool QuickTime 文档](https://exiftool.org/TagNames/QuickTime.html) 可作为进一步检查的入口。
+普通机型可这样写入新副本：
+
+```powershell
+$video = 'D:\VideoLab\source.mp4'
+exiftool -o 'D:\VideoLab\model.mp4' '-Keys:Model=My Video Camera' $video
+```
+
+如果需要写 OPPO 私有机型，仓库提供了最小 ExifTool 配置，用于声明 com.oplus.product.model 这个实际键：
+
+```powershell
+exiftool -config profiles/oplus-video.config -o 'D:\VideoLab\oplus.mp4' '-Keys:OplusProductModel=My Video Camera' $video
+```
+
+-config 要放在实际命令行的前部，不能塞进参数文件后以为配置已经加载。每次都要读回字段；配置未生效时，即使别的字段更新了，也不能把整次实验记为成功。
+
+### 八小时之差，先分清文件里的 UTC 和手机的本地时间
+
+目标北京时间 2020 年 6 月 1 日 12:34:56，换算成 UTC 是 04:34:56。将电影、轨道和媒体头的六组时间明确写为这个 UTC 值，相册就显示 12:34；仅改电影头 CreateDate、保留旧轨道日期，详情日期也跟随了新的电影头。相反，单独新增另一个 Keys:CreationDate，没有覆盖这份样本的电影头时间。
+
+这不是“看到差八小时就全部加八小时”的理由。QuickTime 整数时间、带时区字符串和文件系统时间必须分开解释；在自己的媒体库里，先确认时间所表达的时刻，再决定如何写入。
+
+### 视频定位也不是 JPEG 的 GPS 四件套
+
+这份原片的定位在 UserData:GPSCoordinates，写入公开演示坐标后，相册解析出了北京地区的地址：
+
+```powershell
+exiftool -o 'D:\VideoLab\location.mp4' '-UserData:GPSCoordinates=39.9087 116.3975' $video
+```
+
+ExifTool 会把坐标转换成容器里的 ISO 6709 表示。另一个对照只新增 Keys:GPSCoordinates、保留原 UserData 定位，界面仍显示原位置，所以不能省略分组随便写一个同名标签。修改了这一处，也不等于视频里所有历史定位都被清理。
+
+为了公开展示，我又用同一套方法处理了一段没有私人画面和音轨的 AI 山湖短片：
+
+![视频修改前：人工初始机型、日期，无定位](images/video-before-full.jpg)
+
+![视频修改后：自定义机型、2020 年时间与北京演示坐标](images/video-after-full.jpg)
+
+原生视频副本仍显示 HEVC、60 FPS 和原时长。逐个核对压缩音视频包的哈希、PTS、DTS 和时长，也没有发生变化；原片哈希保持一致。容器文件整体会因元数据变化而改变，这与重新编码画面是两回事。
+
+我把这轮对照整理成独立的五副本实验，而没有让 JPEG 批处理顺手接管整库视频。准备 Python、ExifTool 和 FFmpeg / ffprobe 后，先预览，再执行：
+
+```powershell
+python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01'
+python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01' --apply
+```
+
+脚本使用固定教学值，分别对照三个机型字段、时间与定位、以及组合修改；它不会猜真实拍摄信息，也不是视频库批量修复工具。输出目录必须尚不存在，报告和私人视频均不要直接公开。[完整时间命令、冲突矩阵与验证边界](https://github.com/shisheng820/oppo-gallery-metadata-repair/blob/main/docs/video-metadata.md) 放在仓库里。[ExifTool QuickTime 文档](https://exiftool.org/TagNames/QuickTime.html) 则用于核对字段定义。
+
+这一轮已经验证 ACE 3V 的原生视频与合成视频；一加 15 的视频结果尚待复测。即使文件都以 PXL 开头，也仍然不能凭年份猜测它来自哪台 Pixel。
 
 对我来说，修复旧媒体库并不是给每一栏都填满。能从可靠信息恢复的，尽量恢复；确实不知道的，保留未知；主动自定义的，就知道它只是自己的标签。
 
