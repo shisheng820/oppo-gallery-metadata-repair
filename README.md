@@ -79,7 +79,7 @@ python repair.py 'D:\Photos' --output 'D:\Photos-Demo' --profile profiles/demo.j
 | altitude | --altitude | -Altitude | 米；负值表示海平面以下 |
 | iso / aperture | --iso / --aperture | -Iso / -Aperture | ISO 整数 / 光圈数值，如 200 / 2.8 |
 | exposure | --exposure | -Exposure | 秒，支持 1/125 或 0.008 |
-| ev | --ev | -ExposureCompensation | 曝光补偿，如 -0.7；本次相册未显示它 |
+| ev | --ev | -ExposureCompensation | 如 -0.7；ACE 3V 未显示，一加 15 已由截图确认显示 |
 | focal_length | --focal-length | -FocalLength | 实际焦距，mm |
 | focal_length_35mm | --focal-length-35mm | -FocalLength35mm | 35mm 等效焦距，整数 mm |
 | lens_make / lens_model | --lens-make / --lens-model | -LensMake / -LensModel | 镜头标签，与相机厂商/型号分开 |
@@ -101,7 +101,7 @@ python repair.py 'D:\Photos' --output 'D:\Photos-Demo' --profile profiles/demo.j
 - 地点：北京地区地址，由相册对示例 GPS 反向解析
 - 参数：ISO 200、f/2.8、1/125 s、50 mm
 
-实际焦距写入 35 mm、等效焦距写入 50 mm 时，这个版本显示 50 mm。`ExposureCompensation=-0.7` 已经写入并读回，但界面仍显示“−”。字段存在与界面显示是两件事，其他版本需实测。
+实际焦距写入 35 mm、等效焦距写入 50 mm 时，ACE 3V 显示 50 mm。`ExposureCompensation=-0.7` 在 ACE 3V 界面仍为“−”，后续一加 15 普通静态对照已确认显示 ev -0.7。字段存在与界面显示需要分别验收。
 
 两张完整截图经人工检查，无私人照片、通知、账号或真实个人位置，因而没有打码；图中地址是预设的公共演示坐标解析结果。[兼容性与隐私说明](docs/validation.md)。
 
@@ -151,4 +151,4 @@ python oplus_metadata.py inspect 'D:\Photos\sample.jpg'
 
 已确认，相册调时样本同时改写标准 EXIF，并新增 `capture.info.backup` 保存原时间和原文件名；它不是只用一个高优先级新日期覆盖旧日期。大师标记、预设、实况视频和 HDR 增益图也属于不同层面。见 [源码与格式解释](docs/oplus-container.md)。
 
-实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。当前 ACE 3V 的基础详情可显示，但没有出现大师/实况入口。一加 15 的标签、播放和恢复时间行为仍待实机反馈，不宣称已经兼容。
+实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。ACE 3V 未出现大师/实况入口；一加 15 用户复测已确认大师标识、广角镜头、曝光补偿，以及原片时间与复原入口。实际点击复原后的文件回读尚未记录。实况在两台设备上仍未识别，不能宣称已完成实况兼容。详见[对照证据](docs/validation.md)。
