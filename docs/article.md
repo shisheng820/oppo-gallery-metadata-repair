@@ -8,6 +8,24 @@
 
 这篇文章把我的处理方法整理成可以复用的教程。既讲怎样找回有依据的信息，也讲怎样主动设定机型、时间、定位和摄影参数，让 ColorOS 相册读到自己希望展示的内容。
 
+有些第三方相机只导出了画面，没有保存完整标签。如果我能从拍摄设备、同批原片或当时的记录确认信息，再把它写回，做的就是恢复；如果只是想换一个显示名称，用的仍是同一套写入方法。区别在于填写值的依据。图像里没有记录、外部也没有依据的精确快门、时间或坐标，脚本无法替我还原。
+
+本文按 **Windows + Python / ExifTool** 来操作，界面结论来自已记录的 ColorOS 实测。第一次使用时，可以按下面的路线读，不必先读完大师模式和实况的研究：
+
+```text
+我手里是什么文件？
+├─ 普通 JPEG/JPG
+│  ├─ 先做一张：准备工具 → 单张机型修改 → 读回 → 手机详情验收
+│  └─ 再做一批：指定源目录、新输出目录和所需字段
+├─ 实况 / HDR / 带厂商尾部的 JPEG
+│  └─ 先做只读结构检查；普通批处理会跳过，勿直接套普通照片命令
+└─ MP4 视频
+   ├─ 想设自己的机型、时间、地点：阅读文末的视频分步命令
+   └─ 想复现字段对照：使用固定教学值的 video_lab.py 实验脚本
+```
+
+扩展名只是入口判断：同样以 .jpg 结尾，内部也可能带视频或增益图。上面的树是阅读路线，下面再解释文件里面的结构。
+
 ## 先弄清楚：照片的画面和照片的信息，是两回事
 
 一张 JPEG 可以同时携带图像数据和元数据。前者决定你看到什么画面；后者描述设备、拍摄时间、镜头、曝光和位置等信息。
@@ -19,6 +37,49 @@
 上图是 AI 生成的结构示意，不是相册截图。下面的对比图则来自真实手机界面。
 
 EXIF 是常见的照片元数据标准，但“照片元数据”不只 EXIF。一张文件里还可能有 XMP、IPTC 和厂商私有信息。同名字段出现在不同位置时，也不一定是同一份值。
+
+### 先读懂冒号：分组、字段和值
+
+后文会不断出现 IFD0:Model、UserData:GPSCoordinates。它们不是需要在电脑上找到的路径，而是 **ExifTool 选择字段的写法**：
+
+```text
+UserData:GPSCoordinates = 39.9087 116.3975
+└─分组──┘ └──字段名称──┘   └────字段值────┘
+
+意思：选择 UserData 这一组里的 GPSCoordinates 字段，读取或写入它的值。
+```
+
+UserData 可以理解为工具给一组容器数据起的分组名；GPSCoordinates 是“位置坐标”这个字段的名称。这里的数值是公开教学坐标，不是私人样本的原位置。分组反映了工具如何组织标签，但并不保证每个分组名都等于文件内部某一层的原始名称。
+
+读和写只差一个动作，下面先看句法，真正运行的完整步骤放在后文：
+
+| 我想做什么 | 写法 | 含义 |
+| --- | --- | --- |
+| 读取 | -UserData:GPSCoordinates | 只选中这个字段，查看现有值 |
+| 写入 | "-UserData:GPSCoordinates=39.9087 116.3975" | 把这个字段设为指定坐标 |
+| 看清分组 | -G1 -s | 输出类似 [UserData] GPSCoordinates，而不是只显示一个中文描述 |
+
+字段前面的减号是 ExifTool 的命令参数，冒号选分组，等号右侧是要写入的值。引号把含空格的一整个赋值参数包起来。相同的 GPSCoordinates 也可能出现在 Keys 组，**同名不代表相册会读同一个位置**。
+
+### JPEG 里面的标签怎样组织？
+
+下面是帮助定位字段的结构示意，不是 Windows 目录，也不是每张图必有的清单。EXIF 中的子目录通过指针关联，树中省略了缩略图等其他内容：
+
+```text
+sample.jpg
+├─ 图像数据：压缩后的画面
+├─ APP1 / Exif（如果文件包含 EXIF）
+│  └─ TIFF 结构
+│     └─ IFD0：基础图像信息
+│        ├─ Make、Model、ModifyDate
+│        ├─ ExifIFD 指针 → 拍摄信息子目录
+│        │  └─ DateTimeOriginal、ISO、FNumber、ExposureTime、LensModel…
+│        └─ GPS 指针 → 定位子目录
+│           └─ GPSLatitude、GPSLatitudeRef、GPSLongitude、GPSLongitudeRef…
+└─ 还可能包含 XMP、IPTC、厂商信息或其他附加数据
+```
+
+所以，“修改机型”在这里通常是修改 IFD0:Model；“修改纬度”则要写 GPS:GPSLatitude，并配好南北方向。它们都是元数据，却不是同一个字段，也不是在同一组里随便加一段描述文字。
 
 我现在先看这几组：
 
@@ -75,13 +136,36 @@ EXIF 是常见的照片元数据标准，但“照片元数据”不只 EXIF。�
 
 ## 准备工具：先有原片，再做副本
 
-我使用 [ExifTool](https://exiftool.org/) 来处理标签。Windows 下载版通常需要把程序整理为 exiftool.exe；如果下载包里有配套目录，也要一起保留。把程序加入 PATH 后，在 PowerShell 中确认：
+我使用 [ExifTool](https://exiftool.org/) 来处理标签，用 Python 运行仓库中的封装脚本。先安装 Python 3.10 或更新版本，并下载 ExifTool 的 Windows 版。若可执行文件名带有 (-k)，将它整理为 exiftool.exe；下载包里的 exiftool_files 等配套目录也要一起保留。
+
+将 ExifTool 所在文件夹加入 PATH 后，打开 **PowerShell**，确认这两个命令都能运行：
 
 ```powershell
+python --version
 exiftool -ver
 ```
 
-下面的单文件命令都应该在**工作副本**上执行。可以先复制一张图到 D:\PhotoWork，再设置路径：
+如果 ExifTool 放在 C:\Tools\ExifTool，也可以先只为当前 PowerShell 窗口添加路径。请把示例目录替换成自己的真实目录：
+
+```powershell
+$env:Path = 'C:\Tools\ExifTool;' + $env:Path
+exiftool -ver
+```
+
+接下来下载 [项目仓库](https://github.com/shisheng820/oppo-gallery-metadata-repair)。已安装 Git 时可以执行下面两行；也可以下载 ZIP、解压，然后在解压出的仓库目录打开 PowerShell：
+
+```powershell
+git clone https://github.com/shisheng820/oppo-gallery-metadata-repair.git
+Set-Location oppo-gallery-metadata-repair
+```
+
+后文的 Python、PowerShell 脚本和 profiles 相对路径都以**仓库根目录**为起点。运行下面的只读命令能看到帮助，就说明当前目录正确。普通照片批处理只依赖 Python 标准库与 ExifTool，不需要安装开发测试用的 Pillow；视频实验需要的 FFmpeg / ffprobe 到视频部分再准备。
+
+```powershell
+python repair.py --help
+```
+
+下面的 ExifTool 单文件写入命令都应该在**工作副本**上执行。比如先把一张自己的普通 JPEG 复制为 D:\PhotoWork\sample.jpg，再设置路径。D 盘、目录和文件名都可以改；变量里的文件必须已经存在：
 
 ```powershell
 $photo = 'D:\PhotoWork\sample.jpg'
@@ -95,6 +179,33 @@ exiftool -a -G1 -s -Make -Model -LensMake -LensModel -time:all -GPS:all -ISO -FN
 ExifTool 默认会留下 _original 备份。下面的 -P 用来保留文件系统修改时间，不会阻止你明确修改 EXIF 时间。不要一开始就加 -overwrite_original，更不要为了解决一个字段缺失而执行 -all= 清空全部信息。
 
 下文的单文件写入示例仅针对普通 JPEG。大师、实况、HDR 等复合图片请先使用仓库的 oplus_metadata.py inspect 检查；普通批量脚本会跳过此类容器。
+
+### 第一次操作：只改一张普通照片的机型
+
+先用只读检查确认它是不是复合文件：
+
+```powershell
+python oplus_metadata.py inspect $photo
+```
+
+输出的 compound=false，才进入这一条普通 JPEG 路线；如果为 true，先读后面关于实况/HDR 的部分。这不是让你先清空元数据，而是避免把带隐藏媒体的文件当作普通图处理。
+
+下面只设置机型，不修改时间、位置和其他摄影参数。脚本输出目录要是**尚不存在的新目录**，与源目录分开：
+
+```powershell
+# 第一次只预览：不创建输出目录，不改原片
+python repair.py $photo --output 'D:\PhotoWork-Model-01' --model 'My Custom Camera'
+
+# 核对范围后再执行：创建新副本和报告，原片仍在原处
+python repair.py $photo --output 'D:\PhotoWork-Model-01' --model 'My Custom Camera' --apply
+
+# 检查输出副本，Model 应为 My Custom Camera
+exiftool -G1 -s -Make -Model 'D:\PhotoWork-Model-01\sample.jpg'
+```
+
+如果你的输入不叫 sample.jpg，读回命令也要改成实际文件名。第二次重做请换一个新的输出目录，例如 PhotoWork-Model-02；不要先建输出目录，也不要直接覆盖旧结果。
+
+最后把这个输出 JPG 按原文件复制到手机的新图集，等待扫描后重新打开相册详情，核对机型。**预览正确 → 写入副本 → 电脑读回正确 → 手机显示正确**，这才完成一轮。后文只是把同一套步骤扩展到时间、定位、参数与批量处理。
 
 ## 自改机型：相机型号和镜头型号不要改错位置
 
@@ -202,14 +313,7 @@ ExposureTime 的单位是秒，0.008 秒就是 1/125 秒。FNumber 写数值 2.8
 
 它的核心很简单：指定源目录、指定新输出目录、指定要修改的字段。没有填写的字段保持原值。运行时只依赖 Python 标准库与 ExifTool，不需要在手机上配置额外的控制环境。
 
-下载仓库并进入目录：
-
-```powershell
-git clone https://github.com/shisheng820/oppo-gallery-metadata-repair.git
-Set-Location oppo-gallery-metadata-repair
-python --version
-exiftool -ver
-```
+以下命令继续在前面准备好的仓库根目录运行，不需要重新克隆，也不需要先把照片搬进仓库。源路径可以指向你自己的照片文件夹。
 
 把整个目录及子目录里的 JPEG 统一设为某个机型，先预览：
 
@@ -406,6 +510,70 @@ HDR 增益图本身也是图像，不能从旧私人照片里整张搬到新图�
 
 照片跑通以后，我又拿一段原生 HEVC 视频做了独立副本。它让我确认：视频同样能自定义机型、时间和定位，但应该改的字段，已经换了一套。
 
+### 先把视频打开成一棵结构树
+
+MP4 可以理解为装着音轨、视频轨和说明信息的容器。里面的块常叫 box 或 atom，moov、mdat、udta 是块的名字。它们不是你在资源管理器里能展开的文件夹，ExifTool 负责解析这些内部结构：
+
+```text
+sample.mp4（按本次样本简化；省略了其他块，不代表字节排列顺序）
+├─ ftyp：文件类型与兼容标识
+├─ mdat：压缩后的画面、声音等媒体数据
+└─ moov：电影、轨道和元数据结构
+   ├─ mvhd：电影头
+   │  └─ CreateDate、ModifyDate → ExifTool 的 QuickTime 组
+   ├─ trak：轨道，可有视频轨、音频轨等多个
+   │  ├─ tkhd → TrackCreateDate、TrackModifyDate
+   │  └─ mdia / mdhd → MediaCreateDate、MediaModifyDate
+   ├─ meta：本次样本中一组 mdta 元数据
+   │  ├─ keys：键名清单，例如 com.oplus.product.model
+   │  └─ ilst：按键名编号关联的实际值，例如某个机型名称
+   └─ udta：用户数据块
+      └─ ©xyz：位置字符串 → ExifTool 显示为 UserData:GPSCoordinates
+```
+
+不同软件写出的 MP4，可能把 meta 放到其他合法位置，也可能没有上述某些字段。树的作用是解释这次读取的结构，不是要求把每段视频改成同一套布局。
+
+这里还多了一层“工具名与底层名”的映射。ExifTool 为长键名提供较短的标签名，我们通常在命令里使用右栏：
+
+| 本次涉及的底层键或块 | ExifTool 的选择写法 | 用途 |
+| --- | --- | --- |
+| com.apple.quicktime.model | Keys:Model | 通用机型名称键 |
+| com.android.model | Keys:AndroidModel | Android 机型键 |
+| com.oplus.product.model | Keys:OplusProductModel | 本次 OPPO/一加原片中的机型键 |
+| udta 内的 ©xyz | UserData:GPSCoordinates | 这次被相册读取的位置 |
+| com.apple.quicktime.location.ISO6709 | Keys:GPSCoordinates | 另一处也能存放坐标的键 |
+
+因此，“定位在 UserData:GPSCoordinates”可以完整翻译为：**这份文件的位置数据在 udta 中的 ©xyz 块，ExifTool 把它归入 UserData 组，给它的字段名是 GPSCoordinates；我们用这个完整名称选中它。** 不是去磁盘上找一个 UserData 目录，也不是所有定位都属于这一组。
+
+### 准备一个视频，先看它已经有哪些字段
+
+下面继续在仓库根目录的 PowerShell 中运行。把路径换成自己的视频；输入文件需要存在，输出文件不要提前创建。先读取，不写入：
+
+```powershell
+$video = 'D:\VideoLab\source.mp4'
+exiftool -a -G1 -s -Model -AndroidModel -OplusProductModel -CreateDate -TrackCreateDate -MediaCreateDate -CreationDate -GPSCoordinates $video
+```
+
+-a 保留重复字段，-G1 把分组显示出来。这里故意不限定某一组 GPSCoordinates，是为了先找到文件中存在的各组坐标；确定要改哪一处后，写入时再明确指定分组。
+
+例如，输出中出现下面这两行时，应该按三列读。这里的内容为教学示例，不是私人原片的字段转录：
+
+```text
+[Keys]      OplusProductModel : Original Video Lab
+[UserData]  GPSCoordinates    : 39 deg 54' 31.32" N, 116 deg 23' 51.00" E
+ ↑ 分组       ↑ 字段名           ↑ 工具格式化后的值
+```
+
+想把坐标看成十进制数字，可以单独加 -n 读取：
+
+```powershell
+exiftool -G1 -s -n -UserData:GPSCoordinates $video
+```
+
+接下来的机型、时间、地点三个例子，**分别从同一个 source.mp4 生成不同副本，不会自动叠加修改**。只改一项就用对应例子；要一次设定三项，见后面的组合命令。
+
+### 机型：先改字段，再看相册是否采纳
+
 相册中原先的机型来自 Keys:OplusProductModel。新增 Keys:Model 后，显示名称随之改变；只新增 AndroidModel 却没有改变显示。把三个字段写成不同名字，最终显示 Keys:Model；去掉私有机型、只留 AndroidModel，则显示“无相机信息”。这些是 ACE 3V 相册 16.40.22 的实测结果，不能直接推广到所有设备。
 
 普通机型可这样写入新副本：
@@ -414,6 +582,14 @@ HDR 增益图本身也是图像，不能从旧私人照片里整张搬到新图�
 $video = 'D:\VideoLab\source.mp4'
 exiftool -o 'D:\VideoLab\model.mp4' '-Keys:Model=My Video Camera' $video
 ```
+
+-o 后面是输出副本的完整路径，最后的 $video 是输入原片。运行后应该读回**输出副本**，而不是继续检查原片：
+
+```powershell
+exiftool -G1 -s -Model -AndroidModel -OplusProductModel 'D:\VideoLab\model.mp4'
+```
+
+你应该在 [Keys] 的 Model 这一行看到 My Video Camera。原有的 OplusProductModel 可能还在；新增 Model 并不等于把其他机型字段全部删除了。
 
 如果需要写 OPPO 私有机型，仓库提供了最小 ExifTool 配置，用于声明 com.oplus.product.model 这个实际键：
 
@@ -427,17 +603,68 @@ exiftool -config profiles/oplus-video.config -o 'D:\VideoLab\oplus.mp4' '-Keys:O
 
 目标北京时间 2020 年 6 月 1 日 12:34:56，换算成 UTC 是 04:34:56。将电影、轨道和媒体头的六组时间明确写为这个 UTC 值，相册就显示 12:34；仅改电影头 CreateDate、保留旧轨道日期，详情日期也跟随了新的电影头。相反，单独新增另一个 Keys:CreationDate，没有覆盖这份样本的电影头时间。
 
+具体执行时，不靠心算加减八小时，先用带时区的目标值换算，再写入新副本。+08:00 明确表示这个例子的北京时间；如果目标时刻属于其他时区，应填写相应偏移：
+
+```powershell
+$targetTime = [DateTimeOffset]::Parse('2020-06-01T12:34:56+08:00')
+$utc = $targetTime.UtcDateTime.ToString('yyyy:MM:dd HH:mm:ss')
+$utc  # 本例应输出 2020:06:01 04:34:56
+
+exiftool -o 'D:\VideoLab\time.mp4' `
+  "-QuickTime:CreateDate=$utc" "-QuickTime:ModifyDate=$utc" `
+  "-QuickTime:TrackCreateDate=$utc" "-QuickTime:TrackModifyDate=$utc" `
+  "-QuickTime:MediaCreateDate=$utc" "-QuickTime:MediaModifyDate=$utc" $video
+
+exiftool -a -G1 -s -CreateDate -ModifyDate -TrackCreateDate -TrackModifyDate -MediaCreateDate -MediaModifyDate 'D:\VideoLab\time.mp4'
+```
+
+上面的 UTC 换算由 PowerShell 显式完成，没有再启用 ExifTool 的 QuickTimeUTC 自动时区转换。按这里的默认读法，电脑读回整数时间为 04:34:56，手机在北京时间环境显示 12:34，两者可以是同一时刻。多行命令末尾的反引号是 PowerShell 续行符，后面不要再加空格。
+
 这不是“看到差八小时就全部加八小时”的理由。QuickTime 整数时间、带时区字符串和文件系统时间必须分开解释；在自己的媒体库里，先确认时间所表达的时刻，再决定如何写入。
 
 ### 视频定位也不是 JPEG 的 GPS 四件套
 
-这份原片的定位在 UserData:GPSCoordinates，写入公开演示坐标后，相册解析出了北京地区的地址：
+回到结构树中的 moov → udta → ©xyz：在这份样本中，修改这里的位置，相册才采用新的坐标。下面用公开的北京地区坐标演示，纬度在前、经度在后；写的是两个数字，不是“北京市”这段地名：
 
 ```powershell
 exiftool -o 'D:\VideoLab\location.mp4' '-UserData:GPSCoordinates=39.9087 116.3975' $video
+
+# 读回输出：应看到这两个十进制坐标
+exiftool -G1 -s -n -UserData:GPSCoordinates 'D:\VideoLab\location.mp4'
 ```
 
-ExifTool 会把坐标转换成容器里的 ISO 6709 表示。另一个对照只新增 Keys:GPSCoordinates、保留原 UserData 定位，界面仍显示原位置，所以不能省略分组随便写一个同名标签。修改了这一处，也不等于视频里所有历史定位都被清理。
+这里输入的 39.9087 是北纬，116.3975 是东经；负数分别表示南纬和西经。ExifTool 会把数值转换成容器里的 ISO 6709 位置字符串，可能类似 +39.9087+116.3975/：正负号表示方向，最后的斜杠结束字符串。你不需要手工拼接这段底层字符串，使用上面的 ExifTool 数值写法即可。
+
+文件中有坐标后，相册再通过地址服务把它解释成城市、道路等文字。ExifTool 读回坐标正确，是文件层面的检查；手机有没有显示相应地址，是相册层面的检查，两步都要做。
+
+另一个对照只新增 Keys:GPSCoordinates、保留原 UserData 定位，界面仍显示原位置，所以不能省略分组随便写一个同名标签。这个结果没有证明所有相册都忽略 Keys 定位，也没有穷举其他字段缺失时的回退顺序。修改了这一处，也不等于视频里所有历史定位都被清理。
+
+### 合并操作：给自己的一个视频设定机型、时间和地点
+
+如果你希望三个修改都出现在**同一个副本**中，可以执行下面这段完整示例。修改开头的五个输入值，然后检查新输出文件名。纬度、经度和日期都是演示值，恢复真实信息时要替换成有依据的值：
+
+```powershell
+$video = 'D:\VideoLab\source.mp4'
+$outputVideo = 'D:\VideoLab\custom-01.mp4'  # 该文件必须尚不存在
+$model = 'My Video Camera'
+$targetTime = [DateTimeOffset]::Parse('2020-06-01T12:34:56+08:00')
+$coordinates = '39.9087 116.3975'  # 纬度 经度
+$utc = $targetTime.UtcDateTime.ToString('yyyy:MM:dd HH:mm:ss')
+
+exiftool -config profiles/oplus-video.config -o $outputVideo `
+  "-Keys:Model=$model" "-Keys:AndroidModel=$model" "-Keys:OplusProductModel=$model" `
+  "-QuickTime:CreateDate=$utc" "-QuickTime:ModifyDate=$utc" `
+  "-QuickTime:TrackCreateDate=$utc" "-QuickTime:TrackModifyDate=$utc" `
+  "-QuickTime:MediaCreateDate=$utc" "-QuickTime:MediaModifyDate=$utc" `
+  "-UserData:GPSCoordinates=$coordinates" $video
+
+# 检查所有机型、时间与坐标组，留意是否还有其他组里的旧值
+exiftool -a -G1 -s -n -Model -AndroidModel -OplusProductModel -time:all -GPSCoordinates $outputVideo
+```
+
+这里显式同步三处机型，避免它们留下互相冲突的名字；它不是相册显示机型的普遍最低要求。时间和定位也只修改命令列出的字段，不会自动清除所有厂商数据。ExifTool 直接写入这一步**没有预览模式**，运行后就生成副本；原片不覆盖，输出重做时换一个新文件名。
+
+读回后，把 $outputVideo 指向的 MP4 按原文件复制到手机的新目录，等待扫描并打开详情。核对文件名、机型、目标本地时间与地点；再播放视频，确认画面、时长和原有声音符合预期。不要把截图中出现一个自定义名字，反过来当成真实拍摄身份的证据。
 
 为了公开展示，我又用同一套方法处理了一段没有私人画面和音轨的 AI 山湖短片：
 
@@ -447,16 +674,57 @@ ExifTool 会把坐标转换成容器里的 ISO 6709 表示。另一个对照只�
 
 原生视频副本仍显示 HEVC、60 FPS 和原时长。逐个核对压缩音视频包的哈希、PTS、DTS 和时长，也没有发生变化；原片哈希保持一致。容器文件整体会因元数据变化而改变，这与重新编码画面是两回事。
 
-我把这轮对照整理成独立的五副本实验，而没有让 JPEG 批处理顺手接管整库视频。准备 Python、ExifTool 和 FFmpeg / ffprobe 后，先预览，再执行：
+### 最后才是实验脚本：一次生成五份字段对照
+
+如果目标是设定自己的参数，前面的命令已经能完成；下面这一段是为了复现实验，**不是把自己的参数传给视频批处理**。video_lab.py 当前会固定写入教学值，不能像 repair.py 那样接收 --model、--taken-at 或 --latitude。
+
+我把这轮对照整理成独立的五副本实验，而没有让 JPEG 批处理顺手接管整库视频。除了 Python、ExifTool，还需安装 FFmpeg，并让它附带的 ffprobe 能从 PATH 运行。前面的 ExifTool 手动写入不依赖 FFmpeg；这里需要它来检查压缩媒体包。先确认：
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+再预览、执行。输出是**新的目录**，而不是前面 ExifTool -o 所需的单个 MP4 文件路径：
 
 ```powershell
 python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01'
 python scripts/video_lab.py 'D:\VideoLab\source.mp4' --output 'D:\VideoLab\trial-01' --apply
 ```
 
-脚本使用固定教学值，分别对照三个机型字段、时间与定位、以及组合修改；它不会猜真实拍摄信息，也不是视频库批量修复工具。输出目录必须尚不存在，报告和私人视频均不要直接公开。[完整时间命令、冲突矩阵与验证边界](https://github.com/shisheng820/oppo-gallery-metadata-repair/blob/main/docs/video-metadata.md) 放在仓库里。[ExifTool QuickTime 文档](https://exiftool.org/TagNames/QuickTime.html) 则用于核对字段定义。
+生成的文件有明确分工：
+
+```text
+trial-01/                         # 实验输出目录
+├─ MODEL_KEYS.mp4                 # 只写 Keys:Model
+├─ MODEL_ANDROID.mp4              # 只写 Keys:AndroidModel
+├─ MODEL_OPLUS.mp4                # 只写 Keys:OplusProductModel
+├─ TIME_LOCATION.mp4              # 设定教学时间和北京演示坐标
+├─ CUSTOM_VIDEO.mp4               # 合并教学机型、时间和坐标
+└─ report.json                    # 原片哈希、各副本的压缩媒体包校验结果
+```
+
+脚本不会猜真实拍摄信息，也不是视频库批量修复工具。输出目录必须尚不存在，报告和私人视频均不要直接公开。report.json 的包校验不等于相册验收，生成后仍需逐份读回字段、复制到手机核对。[冲突矩阵与验证边界](https://github.com/shisheng820/oppo-gallery-metadata-repair/blob/main/docs/video-metadata.md) 保留在仓库里供查证；日常操作所需的步骤已经放在这篇正文。[ExifTool QuickTime 文档](https://exiftool.org/TagNames/QuickTime.html) 则用于核对字段定义。
 
 这一轮已经验证 ACE 3V 的原生视频与合成视频；一加 15 的视频结果尚待复测。即使文件都以 PXL 开头，也仍然不能凭年份猜测它来自哪台 Pixel。
+
+## 如果让 AI 帮忙，先把输入和验收条件说完整
+
+我也会让 AI 协助整理命令，但不会只说一句“帮我修复元数据”。对自己和 AI 来说，先写清下面这些信息，往往比一开始堆更多字段更有效：
+
+```text
+运行环境：Windows / PowerShell；手机与相册版本按实际填写。
+输入：一个明确的文件或源目录；说明 JPEG、MP4，还是实况/HDR。
+输出：一个全新的目录或文件路径；保留原片。
+修改目标：逐项列出字段和值，不需要修改的字段明确保留。
+值的依据：设备记录、同批原片、拍摄记录，或纯粹的自定义显示。
+时间：写完整日期、时钟和时区；无法确认的部分不要推测。
+定位：提供纬度、经度及来源；没有依据就不补。
+执行顺序：先读取和解释现状，再选相应入口，先用小样本验证。
+验收：读回输出标签，检查媒体未被意外改变，再到手机核对详情。
+```
+
+判断结果时，我会分四层：命令执行了、标签读回正确、媒体完整性检查通过、相册显示符合预期。前一层不能代替后一层。比如 video_lab.py 的报告能校验压缩媒体包，却不能替我确认相册选中了哪个同名机型字段；手机上出现一个正确名字，也不能证明其他日期和定位都已经处理好。
 
 对我来说，修复旧媒体库并不是给每一栏都填满。能从可靠信息恢复的，尽量恢复；确实不知道的，保留未知；主动自定义的，就知道它只是自己的标签。
 
