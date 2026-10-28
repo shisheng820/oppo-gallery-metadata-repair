@@ -217,7 +217,20 @@ def make_motion_photo(image, video, blocks=None, timestamp_us=0, footer=b"jxrs",
         item = ET.SubElement(seq, q("rdf", "li"), {q("rdf", "parseType"): "Resource"})
         ET.SubElement(item, q("Container", "Item"), {q("Item", "Semantic"): semantic,
             q("Item", "Mime"): mime, q("Item", "Length"): str(length), q("Item", "Padding"): "0"})
-    packet = XMP_HEADER + ET.tostring(root, encoding="utf-8")
+    # ElementTree hoists declarations to xmpmeta. Semantically valid XML, but
+    # ACE 3V gallery 16.40.22 failed to recognize it in a controlled comparison.
+    # Keep escaped ET values while reproducing the observed camera scoping.
+    xml = ET.tostring(root, encoding="utf-8")
+    declarations = []
+    for prefix in ("GCamera", "OpCamera", "Container", "Item", "rdf"):
+        declaration = f' xmlns:{prefix}="{NS[prefix]}"'.encode()
+        xml = xml.replace(declaration, b"", 1)
+        if prefix == "rdf":
+            xml = xml.replace(b"<rdf:RDF", b"<rdf:RDF" + declaration, 1)
+        else:
+            declarations.append(declaration)
+    xml = xml.replace(b"<rdf:Description", b"<rdf:Description" + b"".join(declarations), 1)
+    packet = XMP_HEADER + xml
     if len(packet) + 2 > 65535:
         raise ValueError("XMP exceeds one JPEG APP1 segment")
     # Plain image XMP (for example attribution) stays separate; no donor XMP imported.

@@ -30,6 +30,8 @@ def main():
                       "docs/images/oneplus15-baseline-details.jpg": (1272, 2772),
                       "docs/images/oneplus15-master-details.jpg": (1272, 2772),
                       "docs/images/oneplus15-time-restore.jpg": (1272, 2772),
+                      "docs/images/ace-live-v2.jpg": (1080, 2304),
+                      "docs/images/ace-live-v2-playing.jpg": (1080, 2304),
                       "docs/images/exif-layers.png": (2000, 1200)}
             if rel not in limits:
                 errors.append(f"Unapproved media: {rel}")

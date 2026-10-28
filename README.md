@@ -151,4 +151,4 @@ python oplus_metadata.py inspect 'D:\Photos\sample.jpg'
 
 已确认，相册调时样本同时改写标准 EXIF，并新增 `capture.info.backup` 保存原时间和原文件名；它不是只用一个高优先级新日期覆盖旧日期。大师标记、预设、实况视频和 HDR 增益图也属于不同层面。见 [源码与格式解释](docs/oplus-container.md)。
 
-实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。ACE 3V 未出现大师/实况入口；一加 15 用户复测已确认大师标识、广角镜头、曝光补偿，以及原片时间与复原入口。实际点击复原后的文件回读尚未记录。实况在两台设备上仍未识别，不能宣称已完成实况兼容。详见[对照证据](docs/validation.md)。
+实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。第一版未识别实况；修正 XMP 声明层级后，v2 在 ACE 3V 已显示实况入口并验证长按播放，使用 H.264、无音轨视频。一加 15 已确认第一版的大师标识、镜头、曝光补偿及日期备份入口，实际复原后的标准 EXIF 时间也已读回验证；v2 的一加 15 实况兼容性待复测。详见[对照证据](docs/validation.md)。

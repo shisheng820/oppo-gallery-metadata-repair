@@ -1,8 +1,9 @@
 import json
 import struct
 import unittest
+import xml.etree.ElementTree as ET
 
-from oplus_metadata import build_trailer, parse_trailer, jpeg_end, inspect_bytes, make_motion_photo
+from oplus_metadata import build_trailer, parse_trailer, jpeg_end, inspect_bytes, make_motion_photo, headers, XMP_HEADER, NS
 
 
 def minimal_jpeg():
@@ -11,6 +12,25 @@ def minimal_jpeg():
 
 
 class OplusStructureTests(unittest.TestCase):
+    def test_camera_compatible_namespace_scope(self):
+        video = struct.pack('>I',24)+b'ftypmp42'+b'\0'*12
+        data = make_motion_photo(minimal_jpeg(), video, timestamp_us=1500000)
+        packet = next(p[len(XMP_HEADER):] for m, _, _, p in headers(data)
+                      if m == 0xe1 and p.startswith(XMP_HEADER))
+        root_tag = packet.split(b'>', 1)[0]
+        rdf_tag = packet.split(b'<rdf:RDF', 1)[1].split(b'>', 1)[0]
+        desc_tag = packet.split(b'<rdf:Description', 1)[1].split(b'>', 1)[0]
+        self.assertNotIn(b'xmlns:rdf=', root_tag)
+        self.assertIn(b'xmlns:rdf=', rdf_tag)
+        for prefix in ('GCamera', 'OpCamera', 'Container', 'Item'):
+            declaration = ('xmlns:' + prefix + '=').encode()
+            self.assertNotIn(declaration, root_tag)
+            self.assertIn(declaration, desc_tag)
+        tree = ET.fromstring(packet)
+        desc = next(tree.iter('{' + NS['rdf'] + '}Description'))
+        self.assertEqual(desc.attrib['{' + NS['GCamera'] + '}MotionPhotoPresentationTimestampUs'], '1500000')
+        self.assertEqual(data[jpeg_end(data):], video)
+
     def test_jpeg_end_skips_thumbnail_and_stuffed_markers(self):
         image = minimal_jpeg()
         header = b'\xff\xe1\x00\x06xx\xff\xd9'

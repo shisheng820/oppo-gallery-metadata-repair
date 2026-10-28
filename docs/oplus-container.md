@@ -125,7 +125,7 @@ ffmpeg -i 'D:\Lab\video.mp4' -t 0.8 -vf scale=768:512 -an -c:v libx264 -pix_fmt 
 
 # image.jpg 必须是没有旧实况/HDR 尾部的普通新场景 JPEG
 # video.mp4 和 short.mp4 均应来自同一新场景；不要拿私人原视频来配一个新封面
-python oplus_metadata.py build --image 'D:\Lab\image.jpg' --video 'D:\Lab\video.mp4' --sub-video 'D:\Lab\short.mp4' --output 'D:\Lab\DEMO_MP.jpg' --capture-mode master --presentation-us 1500000 --example-master-preset
+python oplus_metadata.py build --image 'D:\Lab\image.jpg' --video 'D:\Lab\video.mp4' --sub-video 'D:\Lab\short.mp4' --output 'D:\Lab\DEMO_MP.jpg' --capture-mode master --presentation-us 1500000 --example-master-preset --oplus-flags 0xb00a00500
 ```
 
 如需主动试验 UserComment 功能位，可显式提供 --oplus-flags；没有默认复制模板，也没有声称已经解释该整数全部含义。调时备份可用 --backup-time 和 --backup-name 配套构建；wtmk 通过 --footer 显式选择。实验 CLI 的结构校验不替代视频解码及手机验证。
@@ -138,6 +138,36 @@ python oplus_metadata.py build --image 'D:\Lab\image.jpg' --video 'D:\Lab\video.
 
 主视频三秒、子视频约 0.8 秒，无音轨；提取出来能正常解码。主图与内嵌图的像素均来自全新场景，不含私人样本画面。
 
-ACE 3V 没有显示大师/实况入口，因而没有在系统相册里验收播放成功；曝光补偿仍为“−”。后续一加 15 用户复测已确认大师标识、广角镜头文字、ev -0.7，以及改时页的原片时间和复原入口，见[截图对照](validation.md)。点击复原后的实际写回尚无回读证据。实况在一加 15 仍未识别。
+第一版未出现实况入口。保持主图扫描、视频和尾部不变，修正 XMP 命名空间声明的层级后，v2 在 ACE 3V 相册 16.40.22 出现实况标识；长按后可见同一场景短片的变焦变化。主样本和 wtmk 改时样本都显示入口。H.264、无音轨、没有增益图的配置保持不变，所以不能再把缺少入口归因于必须使用 HEVC、AAC 或 HDR。
 
-视频差异检查还发现：原样本主视频是 HEVC Main 10、HLG、mp42 并带 AAC 音轨，实验视频则为 AVC 8-bit、isom、无音轨。这些是待隔离的变量，并非已定位的根因。不应为迎合图标就随意声称 HDR、复制私人音视频，或把一次结构检查当作播放验收。可能的影响因素仍包括相册版本、能力配置、导入索引和格式约定。
+![ACE 3V 实况入口](images/ace-live-v2.jpg)
+
+![长按后的播放画面](images/ace-live-v2-playing.jpg)
+
+### XMP 序列化对照
+
+下表所有变体均使用相同视频、尾部数据与主 JPEG 扫描，属性值不变；每次以新文件名导入独立目录。
+
+| 写法 | ACE 3V 实况入口 |
+| --- | --- |
+| ElementTree 默认：所有声明在 x:xmpmeta | 无 |
+| 仅把 EXIF APP1 排在 XMP APP1 前面 | 无 |
+| 只将 GCamera、OpCamera 声明移到 rdf:Description | 无 |
+| 四组声明移到 rdf:Description，rdf 仍在外层 | 无 |
+| 四组声明在 rdf:Description，rdf 声明在 rdf:RDF | 有 |
+| 相机风格 XML、XMP APP1 仍放在 EXIF 前面 | 有 |
+| 相机风格 XML 去掉 x:xmptk 工具名 | 有 |
+
+四组指 GCamera、OpCamera、Container、Item。它们的 URI 见上文；代码保持 ElementTree 转义后的值，只重新放置声明。这里确定了一套充分的兼容写法，没有穷举所有排列，也没有取得相册源码，不能推断其内部具体判断语句。XML 命名空间继承在标准上有效；此现象不能改写成 XML 标准限制。
+
+一加 15 已由使用者截图确认第一版的大师标识、广角文字、EV 和日期备份入口；v2 在一加 15 的实况结果尚待反馈。
+
+### 复原后的实际文件
+
+随后拿到实际点击“复原”后导出的文件，读回确认 DateTimeOriginal、CreateDate、ModifyDate 已恢复到 2020:06:01 12:34:56，SubSecTimeOriginal 恢复为 123。capture.info.backup 仍在，既有尾部块与主 JPEG 扫描数据保持不变。这次已经验证到文件写回，而不仅是按钮出现；复原也不等于删除编辑历史。
+
+### 第二份原生长焦样本
+
+原生长焦实况在 ACE 3V 有入口；其尾部有 live.subVideo、live.subVideoSize，但没有 master.mode.preset.info 或 src.image。它说明不能把大师样本的全部块都称为实况的必要字段。我们没有把这份私人图片、增益图、声音或视频用于新场景。
+
+LensModel、FocalLength、FocalLengthIn35mmFormat 与 DigitalZoomRatio 语义不同。镜头文字、物理实际焦距、等效视角和数码裁切应分开解释；相册的显示优先级仍需按版本实测。

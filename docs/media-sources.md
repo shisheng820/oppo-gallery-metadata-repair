@@ -26,3 +26,8 @@
 ## 一加 15 复测反馈截图
 
 `images/oneplus15-baseline-details.jpg`、`images/oneplus15-master-details.jpg`、`images/oneplus15-time-restore.jpg` 由使用者提供，展示上述合成山湖样本。经人工检查，无私人位置、账号、通知或原照片；示例文件名、日期及目录均为实验设定。所选敏感元数据检查未发现 GPS、序列号、所有者或相机标识字段。未作画面重绘或遮挡。
+
+
+## v2 实况截图
+
+`images/ace-live-v2.jpg` 与 `images/ace-live-v2-playing.jpg` 为 ACE 3V 系统相册对同一 AI 山湖新场景的真实截图，分别显示识别入口及长按播放中的画面。采集时仅裁去顶部 110 像素状态栏，不重绘画面、不合成图标。人工检查其余区域仅含合成场景与实验日期，没有私人图集、账号、位置或通知；发布前另查敏感元数据。原生长焦样本及其截图、音视频均不公开。
