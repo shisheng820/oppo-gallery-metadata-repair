@@ -26,6 +26,7 @@ def main():
         if path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
             limits = {"docs/images/before-full.jpg": (1080, 2414),
                       "docs/images/after-full.jpg": (1080, 2414),
+                      "docs/images/oplus-lab-ace-details.jpg": (1080, 2414),
                       "docs/images/exif-layers.png": (2000, 1200)}
             if rel not in limits:
                 errors.append(f"Unapproved media: {rel}")

@@ -136,3 +136,19 @@ python -m venv .venv
 ```
 
 代码采用 [MIT](LICENSE)。NASA 图片来源及使用条件见 [素材说明](docs/media-sources.md)，相册截图仅作为界面教学；AI 示意图标注为非实机截图。
+
+## 大师模式、实况、HDR 与相册调时备份
+
+部分 OnePlus/OPPO 的 JPEG 实际上是复合容器。普通批处理现在会跳过有 MPF、增益图、实况标记或 JPEG EOI 后数据的文件，并在报告中写明原因，不把它们当作普通 JPEG 盲目改写。
+
+```powershell
+# 只读结构检查：支持本次观察到的 jxrs / wtmk 尾标记
+# 默认不输出备份里的原时间、原文件名或隐藏媒体内容
+python oplus_metadata.py inspect 'D:\Photos\sample.jpg'
+```
+
+新模块包含带边界校验的 JPEG / XMP / OnePlus 尾部解析，以及实验性的全新场景容器构造器。它不提供“一键克隆私人照片所有元数据”，也不会从私人样本导入缩略图、src.image、旧视频或声音。
+
+已确认，相册调时样本同时改写标准 EXIF，并新增 `capture.info.backup` 保存原时间和原文件名；它不是只用一个高优先级新日期覆盖旧日期。大师标记、预设、实况视频和 HDR 增益图也属于不同层面。见 [源码与格式解释](docs/oplus-container.md)。
+
+实验构造器需要自己准备的新 JPEG 和 MP4，使用 `python oplus_metadata.py build --help` 查看选项。`--example-master-preset` 只是对一份已观察设置布局的显式实验夹具，字段语义未完全解码；不应当作官方通用写入规范。当前 ACE 3V 的基础详情可显示，但没有出现大师/实况入口。一加 15 的标签、播放和恢复时间行为仍待实机反馈，不宣称已经兼容。

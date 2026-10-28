@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import sys
 
+from oplus_metadata import inspect_bytes
+
 FIELDS = ("make", "model", "taken_at", "utc_offset", "latitude", "longitude",
           "altitude", "iso", "aperture", "exposure", "ev", "focal_length",
           "focal_length_35mm", "lens_make", "lens_model")
@@ -190,6 +192,12 @@ def batch(source, output, config, tool="exiftool", recursive=False, apply=False,
     for photo in files:
         entry = {"file": str(photo.relative_to(input_root))}
         try:
+            original = photo.read_bytes()
+            if inspect_bytes(original)["compound"]:
+                entry.update(status="skipped", reason="compound JPEG container: use a container-aware workflow; hidden media was not rewritten")
+                report["summary"]["skipped"] += 1
+                report["files"].append(entry)
+                continue
             desired = dict(common)
             if from_filename_time:
                 try:
@@ -204,7 +212,6 @@ def batch(source, output, config, tool="exiftool", recursive=False, apply=False,
                 desired = {key: value for key, value in desired.items()
                            if before.get(key) is None or str(before[key]).strip("\x00 ") == ""}
             entry["changes"] = {key: {"before": before.get(key), "after": value} for key, value in desired.items()}
-            original = photo.read_bytes()
             image_hash = scan_hash(original)
             if not apply:
                 entry["status"] = "planned"

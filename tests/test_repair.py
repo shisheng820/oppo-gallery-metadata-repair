@@ -155,6 +155,19 @@ class BatchRepairIntegration(unittest.TestCase):
         self.assertEqual(data["OffsetTimeOriginal"], "-03:00")
         self.assertTrue((out / "假期 空格.JPG").exists())
 
+    def test_compound_jpeg_is_skipped_without_altering_hidden_data(self):
+        from oplus_metadata import build_trailer
+        compound = self.original + build_trailer({'capture.mode': b'master\0'})
+        self.source.write_bytes(compound)
+        out = self.base / "output"
+        result = self.run_tool("--output", out, "--model", "Demo", "--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.source.read_bytes(), compound)
+        self.assertFalse((out / self.source.name).exists())
+        report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["summary"]["skipped"], 1)
+        self.assertIn('container', report["files"][0]["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
